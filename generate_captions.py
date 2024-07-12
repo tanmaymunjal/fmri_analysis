@@ -15,7 +15,7 @@ openai_api_key = config.get("OpenAI", "API_KEY")
 
 # load clip model
 clip_model = config.get("CLIP", "MODEL")
-model, preprocess = clip.load("ViT-B/32")
+model, preprocess = clip.load(clip_model)
 model.eval()
 
 
@@ -65,37 +65,55 @@ def compare_image_with_text(all_image_features, all_image_names, image_name, tex
 def encode_image(image_path):
     with Image.open(image_path) as image:
         with io.BytesIO() as buffer:
-            image.convert('RGB').save(buffer, format='JPEG')
-            return base64.b64encode(buffer.getvalue()).decode('utf-8')
+            image.convert("RGB").save(buffer, format="JPEG")
+            return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
 
-def generate_caption(image_path: str, api_key: str = openai_api_key, history=None, attempt=1) -> str:
+def generate_caption(
+    image_path: str, api_key: str = openai_api_key, history=None, attempt=1
+) -> str:
     base64_image = encode_image(image_path)
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
     messages = history if history else []
-    messages.append({
-        "role": "user",
-        "content": [
-            {"type": "text", "text": "Please generate a small and informative caption for this image."},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-        ],
-    })
+    messages.append(
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Please generate a small and informative caption for this image.",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                },
+            ],
+        }
+    )
     payload = {
         "model": "gpt-4o",
         "messages": messages,
         "max_tokens": 25,
     }
     try:
-        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions", headers=headers, json=payload
+        )
         if response.status_code == 200:
             return response.json()["choices"][0]["message"]["content"], messages
         else:
             raise Exception(f"API error: {response.status_code} {response.text}")
     except Exception as e:
         if attempt < 5:
-            return generate_caption(image_path, api_key, history=messages, attempt=attempt + 1)
+            return generate_caption(
+                image_path, api_key, history=messages, attempt=attempt + 1
+            )
         else:
-            return f"Failed to generate caption after multiple attempts due to error: {e}", messages
+            return (
+                f"Failed to generate caption after multiple attempts due to error: {e}",
+                messages,
+            )
+
 
 def process_images(folder_path):
     all_image_features, all_image_names = encode_all_images(folder_path)
@@ -109,8 +127,12 @@ def process_images(folder_path):
             best_similarity = -1
             history = []
             for attempt in range(5):
-                caption, history = generate_caption(image_path, history=history, attempt=attempt + 1)
-                similarity = compare_image_with_text(all_image_features, all_image_names, image_path, caption)
+                caption, history = generate_caption(
+                    image_path, history=history, attempt=attempt + 1
+                )
+                similarity = compare_image_with_text(
+                    all_image_features, all_image_names, image_path, caption
+                )
                 if similarity is not None and similarity.item() > best_similarity:
                     best_caption = caption
                     best_similarity = similarity.item()
@@ -121,12 +143,14 @@ def process_images(folder_path):
             print(f"Error processing {image_path}: {e}")
     return results
 
+
 # Save results
 def save_results(results, file_path="captions.txt"):
     with open(file_path, "w") as file:
         for image_path, caption in results:
             file.write(f"{image_path}: {caption}\n")
 
-# Example usage
-results = process_images("Stimuli")
-save_results(results)
+
+if __name__ == "__main__":
+    results = process_images("Stimuli")
+    save_results(results)
